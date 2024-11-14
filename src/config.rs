@@ -111,9 +111,7 @@ pub fn load_server_config() -> ServerConfig {
             }
         },
     };
-    let mut vailed_config: ServerConfig = ServerConfig {
-        listeners: vec![],
-    };
+    let mut vailed_config: ServerConfig = ServerConfig { listeners: vec![] };
     let mut _socks5_flag = false;
     for i in config_result.listeners.iter() {
         if i.protocol != "socks5" {
