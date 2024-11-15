@@ -1,6 +1,7 @@
 use crate::{client_server, config};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
+use crate::client_server::Connection;
 
 pub fn connect(mut stream: TcpStream, node: &config::Node) {
     let source_addr = stream.peer_addr().unwrap();
@@ -32,19 +33,19 @@ pub fn connect(mut stream: TcpStream, node: &config::Node) {
             return;
         }
     };
-    match stream.write(&connect_result.0[0..connect_result.1]) {
+    match stream.write(&connect_result.reply[0..connect_result.len]) {
         Ok(_) => {
-            if (connect_result.1 > 6)
-                && (connect_result.0[0] == 5)
-                && (connect_result.0[1] == 0)
-                && (connect_result.0[2] == 0)
-                && (((connect_result.0[3] == 1) && (connect_result.1 == 10))
-                    || ((connect_result.0[3] == 4) && (connect_result.1 == 22)
-                        || (connect_result.0[3] == 3)))
+            if (connect_result.len > 6)
+                && (connect_result.reply[0] == 5)
+                && (connect_result.reply[1] == 0)
+                && (connect_result.reply[2] == 0)
+                && (((connect_result.reply[3] == 1) && (connect_result.len == 10))
+                    || ((connect_result.reply[3] == 4) && (connect_result.len == 22))
+                        || (connect_result.reply[3] == 3))
             {
                 print!(
                     "Connect from {} to {} success in {} ms. (",
-                    source_addr, node_addr, connect_result.2
+                    source_addr, node_addr, connect_result.delay.as_millis()
                 );
                 if read_buffer[3] == 1 {
                     print!(
@@ -78,35 +79,40 @@ pub fn connect(mut stream: TcpStream, node: &config::Node) {
                     );
                 }
                 print!(" -> ");
-                if connect_result.0[3] == 1 {
+                if connect_result.reply[3] == 1 {
                     println!(
                         "{}.{}.{}.{}:{})",
-                        connect_result.0[4],
-                        connect_result.0[5],
-                        connect_result.0[6],
-                        connect_result.0[7],
-                        (connect_result.0[8] as u16) * 256 + connect_result.0[9] as u16
+                        connect_result.reply[4],
+                        connect_result.reply[5],
+                        connect_result.reply[6],
+                        connect_result.reply[7],
+                        (connect_result.reply[8] as u16) * 256 + connect_result.reply[9] as u16
                     );
-                } else if connect_result.0[3] == 4 {
+                } else if connect_result.reply[3] == 4 {
                     println!(
                         "[{}:{}:{}:{}:{}:{}:{}:{}]:{})",
-                        connect_result.0[4] as u16 * 256 + connect_result.0[5] as u16,
-                        connect_result.0[6] as u16 * 256 + connect_result.0[7] as u16,
-                        connect_result.0[8] as u16 * 256 + connect_result.0[9] as u16,
-                        connect_result.0[10] as u16 * 256 + connect_result.0[11] as u16,
-                        connect_result.0[12] as u16 * 256 + connect_result.0[13] as u16,
-                        connect_result.0[14] as u16 * 256 + connect_result.0[15] as u16,
-                        connect_result.0[16] as u16 * 256 + connect_result.0[17] as u16,
-                        connect_result.0[18] as u16 * 256 + connect_result.0[19] as u16,
-                        connect_result.0[20] as u16 * 256 + connect_result.0[21] as u16
+                        connect_result.reply[4] as u16 * 256 + connect_result.reply[5] as u16,
+                        connect_result.reply[6] as u16 * 256 + connect_result.reply[7] as u16,
+                        connect_result.reply[8] as u16 * 256 + connect_result.reply[9] as u16,
+                        connect_result.reply[10] as u16 * 256 + connect_result.reply[11] as u16,
+                        connect_result.reply[12] as u16 * 256 + connect_result.reply[13] as u16,
+                        connect_result.reply[14] as u16 * 256 + connect_result.reply[15] as u16,
+                        connect_result.reply[16] as u16 * 256 + connect_result.reply[17] as u16,
+                        connect_result.reply[18] as u16 * 256 + connect_result.reply[19] as u16,
+                        connect_result.reply[20] as u16 * 256 + connect_result.reply[21] as u16
                     );
-                }
+                };
+                connect_result.stream.shutdown(Shutdown::Both).unwrap();
             } else {
-                println!("ERROR: Connect with {} failed", source_addr);
+                println!("ERROR: Connect with {} failed: wrong {} bytes reply from node server.",connect_result.len ,source_addr);
+                for i in 0..connect_result.len{
+                    print!("{} ", connect_result.reply[i]);
+                    println!();
+                }
             }
         }
         Err(_) => {
-            println!("ERROR: Connect with {} failed", source_addr);
+            println!("ERROR: Connect with {} failed: cannot reply to client.", source_addr);
         }
     }
 }
