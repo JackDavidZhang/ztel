@@ -1,9 +1,10 @@
 use crate::{client_server, config};
 use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream};
-use crate::client_server::Connection;
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
+use crate::client_server::{forward, Connection};
+use crate::config::ClientConfig;
 
-pub fn connect(mut stream: TcpStream, node: &config::Node) {
+pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig) {
     let source_addr = stream.peer_addr().unwrap();
     let node_addr = SocketAddr::new(node.address.parse().unwrap(), node.port);
     let mut read_buffer: [u8; 128] = [0; 128];
@@ -23,7 +24,7 @@ pub fn connect(mut stream: TcpStream, node: &config::Node) {
             return;
         }
     };
-    let connect_result = match client_server::connect(&node, &read_buffer[0..len], len) {
+    let mut connect_result = match client_server::connect(&node, &read_buffer[0..len], len) {
         Ok(n) => n,
         Err(msg) => {
             println!(
@@ -79,32 +80,43 @@ pub fn connect(mut stream: TcpStream, node: &config::Node) {
                     );
                 }
                 print!(" -> ");
-                if connect_result.reply[3] == 1 {
-                    println!(
-                        "{}.{}.{}.{}:{})",
-                        connect_result.reply[4],
-                        connect_result.reply[5],
-                        connect_result.reply[6],
-                        connect_result.reply[7],
-                        (connect_result.reply[8] as u16) * 256 + connect_result.reply[9] as u16
-                    );
-                } else if connect_result.reply[3] == 4 {
-                    println!(
-                        "[{}:{}:{}:{}:{}:{}:{}:{}]:{})",
-                        connect_result.reply[4] as u16 * 256 + connect_result.reply[5] as u16,
-                        connect_result.reply[6] as u16 * 256 + connect_result.reply[7] as u16,
-                        connect_result.reply[8] as u16 * 256 + connect_result.reply[9] as u16,
-                        connect_result.reply[10] as u16 * 256 + connect_result.reply[11] as u16,
-                        connect_result.reply[12] as u16 * 256 + connect_result.reply[13] as u16,
-                        connect_result.reply[14] as u16 * 256 + connect_result.reply[15] as u16,
-                        connect_result.reply[16] as u16 * 256 + connect_result.reply[17] as u16,
-                        connect_result.reply[18] as u16 * 256 + connect_result.reply[19] as u16,
-                        connect_result.reply[20] as u16 * 256 + connect_result.reply[21] as u16
-                    );
+                let listen_socket = SocketAddr::new(config.listeners[0].address.parse().unwrap(), 0);
+                let listener = match TcpListener::bind(&listen_socket) {
+                    Ok(l) => l,
+                    Err(msg) => {
+                        println!("ERROR: Connect with {} failed: {}", source_addr, msg);
+                        return;
+                    }
                 };
+                println!("{})",listener.local_addr().unwrap());
+                forward(& mut connect_result, &listener);
+                // if connect_result.reply[3] == 1 {
+                //     println!(
+                //         "{}.{}.{}.{}:{})",
+                //         connect_result.reply[4],
+                //         connect_result.reply[5],
+                //         connect_result.reply[6],
+                //         connect_result.reply[7],
+                //         (connect_result.reply[8] as u16) * 256 + connect_result.reply[9] as u16
+                //     );
+                // } else if connect_result.reply[3] == 4 {
+                //     println!(
+                //         "[{}:{}:{}:{}:{}:{}:{}:{}]:{})",
+                //         connect_result.reply[4] as u16 * 256 + connect_result.reply[5] as u16,
+                //         connect_result.reply[6] as u16 * 256 + connect_result.reply[7] as u16,
+                //         connect_result.reply[8] as u16 * 256 + connect_result.reply[9] as u16,
+                //         connect_result.reply[10] as u16 * 256 + connect_result.reply[11] as u16,
+                //         connect_result.reply[12] as u16 * 256 + connect_result.reply[13] as u16,
+                //         connect_result.reply[14] as u16 * 256 + connect_result.reply[15] as u16,
+                //         connect_result.reply[16] as u16 * 256 + connect_result.reply[17] as u16,
+                //         connect_result.reply[18] as u16 * 256 + connect_result.reply[19] as u16,
+                //         connect_result.reply[20] as u16 * 256 + connect_result.reply[21] as u16
+                //     );
+                // };
+                
                 connect_result.stream.shutdown(Shutdown::Both).unwrap();
             } else {
-                println!("ERROR: Connect with {} failed: wrong {} bytes reply from node server.",connect_result.len ,source_addr);
+                println!("ERROR: Connect with {} failed: wrong {} bytes reply from node server.",source_addr,connect_result.len);
                 for i in 0..connect_result.len{
                     print!("{} ", connect_result.reply[i]);
                     println!();

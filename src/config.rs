@@ -1,11 +1,13 @@
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
+use std::hash::Hash;
 use std::io::{ErrorKind, Read, Write};
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ClientConfig {
     pub listeners: Vec<Listener>,
     pub node: Node,
+    //pub key: String,
 }
 #[derive(Deserialize, Clone, Serialize)]
 pub struct Listener {
@@ -23,6 +25,7 @@ pub struct Node {
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ServerConfig {
     pub listeners: Vec<Listener>,
+    //pub key: String,
 }
 
 pub fn load_client_config() -> ClientConfig {
@@ -49,6 +52,7 @@ pub fn load_client_config() -> ClientConfig {
                         address: "127.0.0.1".to_string(),
                         port: 10086,
                     },
+                    //key: "114514".to_string(),
                 };
                 let default_config_str = toml::to_string(&default_config).unwrap();
                 config_file.write(default_config_str.as_bytes()).unwrap();
@@ -62,6 +66,7 @@ pub fn load_client_config() -> ClientConfig {
     let mut vailed_config: ClientConfig = ClientConfig {
         listeners: vec![],
         node: config_result.node,
+        //key: config_result.key,
     };
     let mut _socks5_flag = false;
     for i in config_result.listeners.iter() {
@@ -129,3 +134,7 @@ pub fn load_server_config() -> ServerConfig {
     }
     vailed_config
 }
+
+// fn key_string_to_bin(key:&String) -> [u8;16]{
+//     key.hash();
+// }

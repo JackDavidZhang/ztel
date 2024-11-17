@@ -19,7 +19,7 @@ fn main() {
         let mut stream = stream.unwrap();
         let len = stream.read(&mut read_buff).unwrap();
         if read_buff[0] == 5 {
-            connect(stream, &config.node);
+            connect(stream, &config.node,&config);
         }
     }
 }

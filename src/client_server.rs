@@ -1,6 +1,6 @@
 use crate::config::Node;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 use crypto::aes;
 use crypto::aes::KeySize;
@@ -85,8 +85,13 @@ fn write(data : &[u8],stream:&mut TcpStream) -> Result<(), &'static str> {
     loop{
         match decryptor.decrypt(&mut decryptor_read_buff, &mut decryptor_write_buff, true).unwrap() {
             BufferResult::BufferUnderflow | BufferResult::BufferOverflow => break,
-            _ => continue,
         }
     }
     Ok(())
+}
+
+pub fn forward(connection:& mut Connection,listener:&TcpListener){
+    let accepted = listener.accept().unwrap();
+    let mut stream = accepted.0;
+    
 }

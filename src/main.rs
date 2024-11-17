@@ -70,8 +70,8 @@ fn main() {
                 0,
                 0,
                 1,
-                (10086 / 256) as u8,
-                (10086 % 256) as u8,
+                (0 / 256) as u8,
+                (0 % 256) as u8,
             ];
             stream.write(&write_buff).unwrap();
         } else {
