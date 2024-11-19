@@ -1,17 +1,16 @@
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
-use std::hash::Hash;
 use std::io::{ErrorKind, Read, Write};
+use std::net::IpAddr;
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ClientConfig {
-    pub listeners: Vec<Listener>,
+    pub listener: Listener,
     pub node: Node,
     //pub key: String,
 }
 #[derive(Deserialize, Clone, Serialize)]
 pub struct Listener {
-    protocol: String,
     pub address: String,
     pub port: u16,
 }
@@ -24,117 +23,113 @@ pub struct Node {
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ServerConfig {
-    pub listeners: Vec<Listener>,
-    //pub key: String,
+    pub listener: Listener,
 }
 
-pub fn load_client_config() -> ClientConfig {
+pub fn load_client_config() -> Result<ClientConfig, &'static str> {
     let config_file = File::open("config_client.toml");
     let config_result = match config_file {
         Ok(mut file) => {
             let mut contents = String::new();
-            file.read_to_string(&mut contents).unwrap();
-            let config: ClientConfig = toml::from_str(&contents).unwrap();
+            match file.read_to_string(&mut contents) {
+                Ok(_) => (),
+                Err(_) => return Err("Cannot read config_client.toml."),
+            }
+            let config: ClientConfig = match toml::from_str(&contents) {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("ERROR: Cannot resolve config_client.toml: {}", e.message());
+                    return Err("Cannot read config_client.toml.");
+                }
+            };
             config
         }
         Err(error) => match error.kind() {
             ErrorKind::NotFound => {
-                println!("WARNING: Config file not found, create default config.");
-                let mut config_file =
-                    File::create("config_client.toml").expect("Failed to create config.toml");
+                println!("WARNING: Config file not found, creating default config.");
+                let mut config_file = match File::create("config_client.toml") {
+                    Ok(file) => file,
+                    Err(_) => return Err("Cannot create config_client.toml."),
+                };
                 let default_config = ClientConfig {
-                    listeners: vec![Listener {
-                        protocol: "socks5".to_string(),
+                    listener: Listener {
                         address: "127.0.0.1".to_string(),
                         port: 8080,
-                    }],
+                    },
                     node: Node {
                         address: "127.0.0.1".to_string(),
                         port: 10086,
                     },
-                    //key: "114514".to_string(),
                 };
                 let default_config_str = toml::to_string(&default_config).unwrap();
-                config_file.write(default_config_str.as_bytes()).unwrap();
-                return default_config;
+                match config_file.write(default_config_str.as_bytes()) {
+                    Ok(_) => (),
+                    Err(_) => return Err("Cannot write to config_client.toml."),
+                };
+                default_config
             }
-            other_error => {
-                panic!("An unexpected error occurred {:?}", other_error)
+            _ => {
+                return Err("Cannot open config_client.toml.");
             }
         },
     };
-    let mut vailed_config: ClientConfig = ClientConfig {
-        listeners: vec![],
-        node: config_result.node,
-        //key: config_result.key,
-    };
-    let mut _socks5_flag = false;
-    for i in config_result.listeners.iter() {
-        if i.protocol != "socks5" {
-            println!("Unsupported protocol {}, ignored.", i.protocol);
-        } else {
-            vailed_config.listeners.push(i.clone());
-            _socks5_flag = true;
+    match config_result.listener.address.parse::<IpAddr>() {
+        Ok(_) => {}
+        Err(_) => {
+            return Err("Illegal listener address.");
         }
     }
-    if vailed_config.listeners.len() < 1 {
-        panic!("No available config found!");
+    match config_result.node.address.parse::<IpAddr>() {
+        Ok(_) => Ok(config_result),
+        Err(_) => Err("Illegal node address."),
     }
-    if vailed_config.listeners.len() > 1 {
-        panic!("More than one available config found!");
-    }
-    vailed_config
 }
 
-pub fn load_server_config() -> ServerConfig {
+pub fn load_server_config() -> Result<ServerConfig, &'static str> {
     let config_file = File::open("config_server.toml");
     let config_result = match config_file {
         Ok(mut file) => {
             let mut contents = String::new();
-            file.read_to_string(&mut contents).unwrap();
-            let config: ServerConfig = toml::from_str(&contents).unwrap();
+            match file.read_to_string(&mut contents) {
+                Ok(_) => (),
+                Err(_) => return Err("Cannot read config_server.toml."),
+            }
+            let config: ServerConfig = match toml::from_str(&contents) {
+                Ok(config) => config,
+                Err(e) => {
+                    eprintln!("ERROR: Cannot resolve config_server.toml: {}", e.message());
+                    return Err("Cannot read config_server.toml.");
+                }
+            };
             config
         }
         Err(error) => match error.kind() {
             ErrorKind::NotFound => {
-                println!("WARNING: Config file not found, create default config.");
-                let mut config_file =
-                    File::create("config_server.toml").expect("Failed to create config.toml");
+                println!("WARNING: Config file not found, creating default config.");
+                let mut config_file = match File::create("config_server.toml") {
+                    Ok(file) => file,
+                    Err(_) => return Err("Cannot create config_server.toml."),
+                };
                 let default_config = ServerConfig {
-                    listeners: vec![Listener {
-                        protocol: "socks5".to_string(),
+                    listener: Listener {
                         address: "127.0.0.1".to_string(),
                         port: 10086,
-                    }],
+                    },
                 };
                 let default_config_str = toml::to_string(&default_config).unwrap();
-                config_file.write(default_config_str.as_bytes()).unwrap();
-                return default_config;
+                match config_file.write(default_config_str.as_bytes()) {
+                    Ok(_) => (),
+                    Err(_) => return Err("Cannot write to config_server.toml."),
+                };
+                default_config
             }
-            other_error => {
-                panic!("An unexpected error occurred {:?}", other_error)
+            _ => {
+                return Err("Cannot open config_server.toml.");
             }
         },
     };
-    let mut vailed_config: ServerConfig = ServerConfig { listeners: vec![] };
-    let mut _socks5_flag = false;
-    for i in config_result.listeners.iter() {
-        if i.protocol != "socks5" {
-            println!("Unsupported protocol {}, ignored.", i.protocol);
-        } else {
-            vailed_config.listeners.push(i.clone());
-            _socks5_flag = true;
-        }
+    match config_result.listener.address.parse::<IpAddr>() {
+        Ok(_) => Ok(config_result),
+        Err(_) => Err("Illegal listener address."),
     }
-    if vailed_config.listeners.len() < 1 {
-        panic!("No available config found!");
-    }
-    if vailed_config.listeners.len() > 1 {
-        panic!("More than one available config found!");
-    }
-    vailed_config
 }
-
-// fn key_string_to_bin(key:&String) -> [u8;16]{
-//     key.hash();
-// }

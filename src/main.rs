@@ -61,18 +61,7 @@ fn main() {
             } else {
                 println!("Unknown Address {}", read_buffer[3]);
             }
-            let write_buff: [u8; 10] = [
-                5,
-                0,
-                0,
-                1,
-                127,
-                0,
-                0,
-                1,
-                (0 / 256) as u8,
-                (0 % 256) as u8,
-            ];
+            let write_buff: [u8; 10] = [5, 0, 0, 1, 127, 0, 0, 1, (0 / 256) as u8, (0 % 256) as u8];
             stream.write(&write_buff).unwrap();
         } else {
             stream.shutdown(Shutdown::Both).unwrap();
