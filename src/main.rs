@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::{Shutdown, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use ztel::config;
 
 fn main() {
@@ -20,57 +20,86 @@ fn main() {
             Ok(len) => len,
             Err(_) => panic!("read failed"),
         };
+        let addr: SocketAddr;
         if (len > 6)
             && (read_buffer[0] == 5)
             && (read_buffer[2] == 0)
             && (((read_buffer[3] == 1) && (len == 10))
-                || ((read_buffer[3] == 4) && (len == 12))
+                || ((read_buffer[3] == 4) && (len == 22))
                 || (read_buffer[3] == 3))
         {
             if read_buffer[3] == 1 {
-                println!(
-                    "Connect from {} to {}.{}.{}.{}:{} established",
-                    stream.peer_addr().unwrap(),
-                    read_buffer[4],
-                    read_buffer[5],
-                    read_buffer[6],
-                    read_buffer[7],
-                    read_buffer[8] as i32 * 256 + read_buffer[9] as i32
-                );
-            } else if read_buffer[3] == 3 {
-                print!("Connect from {} to ", stream.peer_addr().unwrap());
-                for i in 4..len - 2 {
-                    print!("{}", read_buffer[i] as char);
-                }
-                println!(
-                    ":{} established",
-                    read_buffer[len - 2] as i32 * 256 + read_buffer[len - 1] as i32
+                addr = SocketAddr::new(
+                    IpAddr::V4(Ipv4Addr::new(
+                        read_buffer[4],
+                        read_buffer[5],
+                        read_buffer[6],
+                        read_buffer[7],
+                    )),
+                    read_buffer[8] as u16 * 256 + read_buffer[9] as u16,
                 );
             } else if read_buffer[3] == 4 {
-                println!(
-                    "Connect from {} to {}:{}:{}:{}:{}:{}::{} established",
-                    stream.peer_addr().unwrap(),
-                    read_buffer[4],
-                    read_buffer[5],
-                    read_buffer[6],
-                    read_buffer[7],
-                    read_buffer[8],
-                    read_buffer[9],
-                    read_buffer[10] as i32 * 256 + read_buffer[11] as i32
+                addr = SocketAddr::new(
+                    IpAddr::V6(Ipv6Addr::new(
+                        read_buffer[4] as u16 * 256 + read_buffer[5] as u16,
+                        read_buffer[6] as u16 * 256 + read_buffer[7] as u16,
+                        read_buffer[8] as u16 * 256 + read_buffer[9] as u16,
+                        read_buffer[10] as u16 * 256 + read_buffer[11] as u16,
+                        read_buffer[12] as u16 * 256 + read_buffer[13] as u16,
+                        read_buffer[14] as u16 * 256 + read_buffer[15] as u16,
+                        read_buffer[16] as u16 * 256 + read_buffer[17] as u16,
+                        read_buffer[18] as u16 * 256 + read_buffer[19] as u16,
+                    )),
+                    read_buffer[20] as u16 * 256 + read_buffer[21] as u16,
                 );
             } else {
                 println!("Unknown Address {}", read_buffer[3]);
+                continue;
             }
+            let mut diststream = match TcpStream::connect(addr) {
+                Ok(stream) => stream,
+                Err(_) => {
+                    eprintln!(
+                        "Cannot connect to {} from {}.",
+                        addr,
+                        stream.peer_addr().unwrap()
+                    );
+                    let write_buff: [u8; 10] =
+                        [5, 1, 0, 1, 127, 0, 0, 1, (0 / 256) as u8, (0 % 256) as u8];
+                    stream.write(&write_buff).unwrap();
+                    continue;
+                }
+            };
+            diststream
+                .set_read_timeout(Some(std::time::Duration::new(1, 0)))
+                .unwrap();
+            diststream
+                .set_write_timeout(Some(std::time::Duration::new(1, 0)))
+                .unwrap();
+            println!(
+                "Connect from {} to {} established",
+                stream.peer_addr().unwrap(),
+                addr
+            );
             let write_buff: [u8; 10] = [5, 0, 0, 1, 127, 0, 0, 1, (0 / 256) as u8, (0 % 256) as u8];
             stream.write(&write_buff).unwrap();
-            loop{
-                let write_buff = [0u8;4096];
-                let len = match stream.read(&mut read_buffer){
-                    Ok(len) => len,
-                    Err(_) => break,
-                };
-                println!("Read {} bytes", len);
+            let mut read_buff = [0u8; 1024 * 100];
+            let mut len = match stream.read(&mut read_buff) {
+                Ok(len) => len,
+                Err(_) => continue,
+            };
+            if len == 0 {
+                continue;
             }
+            diststream.write(&read_buff[0..len]).unwrap();
+            len = match diststream.read(&mut read_buff) {
+                Ok(len) => len,
+                Err(_) => continue,
+            };
+            if len == 0 {
+                continue;
+            }
+            stream.write(&read_buff[0..len]).unwrap();
         } else {
             stream.shutdown(Shutdown::Both).unwrap();
         }

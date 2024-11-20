@@ -54,7 +54,7 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
     };
     if (connect_result.len >= 3)
         && (connect_result.reply[0] == 5)
-        && (connect_result.reply[1] == 0)
+        //&& (connect_result.reply[1] == 0)
         && (connect_result.reply[2] == 0)
     {
         match stream.write(&connect_result.reply[0..connect_result.len]) {
@@ -104,10 +104,13 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
             );
         };
         println!(")");
-        match forward(&mut connect_result,&mut stream){
+        match forward(&mut connect_result, &mut stream) {
             Ok(_) => {}
             Err(msg) => {
-                eprintln!("WARNING: Forwarding {} to {} failed: {}", source_addr,node_addr, msg);
+                eprintln!(
+                    "WARNING: Forwarding {} to {} failed: {}",
+                    source_addr, node_addr, msg
+                );
             }
         };
         close_stream(stream, &source_addr);

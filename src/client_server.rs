@@ -1,11 +1,6 @@
 use crate::config::Node;
-use crypto::aes;
-use crypto::aes::KeySize;
-use crypto::aes::KeySize::KeySize128;
-use crypto::blockmodes::PkcsPadding;
-use crypto::buffer::{BufferResult, RefReadBuffer, RefWriteBuffer, WriteBuffer};
-use std::io::{Error, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::io::{BufReader, Error, Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 pub struct Connection {
@@ -16,39 +11,33 @@ pub struct Connection {
 }
 
 pub fn connect(node: &Node, request: &[u8], len: usize) -> Result<Connection, &'static str> {
-        //TODO: Remove unnecessary if
-        let address = SocketAddr::new(node.address.parse().unwrap(),node.port);
-        let mut stream: TcpStream = match TcpStream::connect(&address) {
-            Ok(tcpstream) => tcpstream,
-            Err(_) => {
-                return Err("Failed to connect to node server.");
-            }
-        };
-        match write(request, &mut stream){
-            Ok(_)=>{},
-            Err(e) => {return Err("Failed write to node server.");}
+    let address = SocketAddr::new(node.address.parse().unwrap(), node.port);
+    let mut stream: TcpStream = match TcpStream::connect(&address) {
+        Ok(tcpstream) => tcpstream,
+        Err(_) => {
+            return Err("Failed to connect to node server.");
         }
-        let now = Instant::now();
-        let mut read_buff = [0u8; 4096];
-        //TODO: remove
-        match stream.write(request) {
-            Ok(_) => {}
-            Err(_) => {
-                return Err("Failed to write to node server.");
-            }
+    };
+    match write(request, &mut stream) {
+        Ok(_) => {}
+        Err(e) => {
+            return Err("Failed write to node server.");
         }
-        let len = match stream.read(&mut read_buff) {
-            Ok(len) => len,
-            Err(_) => {
-                return Err("Failed to read from node server.");
-            }
-        };
-        Ok(Connection {
-            stream,
-            delay: now.elapsed(),
-            reply: read_buff,
-            len,
-        })
+    }
+    let now = Instant::now();
+    let mut read_buff = [0u8; 4096];
+    let len = match stream.read(&mut read_buff) {
+        Ok(len) => len,
+        Err(_) => {
+            return Err("Failed to read from node server.");
+        }
+    };
+    Ok(Connection {
+        stream,
+        delay: now.elapsed(),
+        reply: read_buff,
+        len,
+    })
 }
 
 fn write(data: &[u8], stream: &mut TcpStream) -> Result<(), Error> {
@@ -90,20 +79,37 @@ fn write_encrypted(data: &[u8], stream: &mut TcpStream) -> Result<(), &'static s
     Ok(())
 }
 
-pub fn forward(connection: &mut Connection,stream:& mut TcpStream) -> Result<(), &'static str> {
-    let mut read_buff = [0u8; 4096];
-    let mut write_buff = [0u8; 4096];
+pub fn forward(connection: &mut Connection, stream: &mut TcpStream) -> Result<(), &'static str> {
+    let mut read_buff = [0u8; 1024 * 100];
+    let mut write_buff = [0u8; 1024 * 100];
     let mut len = 0usize;
-    loop{
-        len = match stream.read(&mut read_buff){
-            Ok(len) => len,
-            Err(_) => {break}
-        };
-        match connection.stream.write(&read_buff[..len]){
-            Ok(_) => {},
-            Err(_) => {break}
-        };
-        println!("DEBUG: Forwarded {} bytes", len);
+    let mut read_buffer = BufReader::new(&mut *stream);
+    match read_buffer.read(&mut read_buff) {
+        Ok(0) => {}
+        Ok(n) => {
+            println!("DEBUG: Read {} bytes.", n);
+            match write(&read_buff[0..n], &mut connection.stream) {
+                Ok(_) => {
+                    println!("DEBUG: Sent {} bytes.", n);
+                }
+                Err(_) => {}
+            };
+        }
+        Err(_) => {}
+    }
+    let mut read_buffer = BufReader::new(&mut connection.stream);
+    match read_buffer.read(&mut write_buff) {
+        Ok(0) => {}
+        Ok(n) => {
+            println!("DEBUG: Read {} bytes.", n);
+            match stream.write(&write_buff[0..n]) {
+                Ok(_) => {
+                    println!("DEBUG: Sent {} bytes.", n);
+                }
+                Err(_) => {}
+            };
+        }
+        Err(_) => {}
     }
     Ok(())
 }
