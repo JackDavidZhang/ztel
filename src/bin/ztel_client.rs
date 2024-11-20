@@ -35,7 +35,7 @@ fn main() {
             Ok(a) => a,
             Err(_) => continue
         };
-        if (len==3)&&(read_buff[0] == 5)&&(read_buff[1] == 1)&&(read_buff[2] == 1)&&(read_buff[3] == 0) {
+        if (len>=3)&&(read_buff[0] == 5)&&(read_buff[1] == 1) {
             connect(stream, &config.node,&config);
         }
     }

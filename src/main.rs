@@ -3,11 +3,11 @@ use std::net::{Shutdown, TcpListener};
 use ztel::config;
 
 fn main() {
-    let config = config::load_server_config();
+    let config = config::load_server_config().unwrap();
     let mut full_address = String::new();
-    full_address.push_str(&config.listeners[0].address.as_str());
+    full_address.push_str(&config.listener.address.as_str());
     full_address.push_str(":");
-    full_address.push_str(&config.listeners[0].port.to_string());
+    full_address.push_str(&config.listener.port.to_string());
     let listener = match TcpListener::bind(&full_address) {
         Ok(listener) => listener,
         Err(_) => panic!("unavailable address {}", full_address),
@@ -63,6 +63,14 @@ fn main() {
             }
             let write_buff: [u8; 10] = [5, 0, 0, 1, 127, 0, 0, 1, (0 / 256) as u8, (0 % 256) as u8];
             stream.write(&write_buff).unwrap();
+            loop{
+                let write_buff = [0u8;4096];
+                let len = match stream.read(&mut read_buffer){
+                    Ok(len) => len,
+                    Err(_) => break,
+                };
+                println!("Read {} bytes", len);
+            }
         } else {
             stream.shutdown(Shutdown::Both).unwrap();
         }
