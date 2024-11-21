@@ -1,7 +1,10 @@
 use crate::config::Node;
-use std::io::{BufReader, Error, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io::Error;
+use std::net::SocketAddr;
 use std::time::{Duration, Instant};
+use tokio::io::{copy, split};
+use tokio::net::TcpStream;
+use tokio::select;
 
 pub struct Connection {
     pub(crate) stream: TcpStream,
@@ -10,9 +13,9 @@ pub struct Connection {
     pub(crate) len: usize,
 }
 
-pub fn connect(node: &Node, request: &[u8], len: usize) -> Result<Connection, &'static str> {
+pub async fn connect(node: &Node, request: &[u8], len: usize) -> Result<Connection, &'static str> {
     let address = SocketAddr::new(node.address.parse().unwrap(), node.port);
-    let mut stream: TcpStream = match TcpStream::connect(&address) {
+    let mut stream: TcpStream = match TcpStream::connect(&address).await {
         Ok(tcpstream) => tcpstream,
         Err(_) => {
             return Err("Failed to connect to node server.");
@@ -26,9 +29,11 @@ pub fn connect(node: &Node, request: &[u8], len: usize) -> Result<Connection, &'
     }
     let now = Instant::now();
     let mut read_buff = [0u8; 4096];
-    let len = match stream.read(&mut read_buff) {
+    stream.readable().await.unwrap();
+    let len = match stream.try_read(&mut read_buff) {
         Ok(len) => len,
-        Err(_) => {
+        Err(e) => {
+            eprintln!("{}", e);
             return Err("Failed to read from node server.");
         }
     };
@@ -71,7 +76,7 @@ fn write(data: &[u8], stream: &mut TcpStream) -> Result<(), Error> {
     //         BufferResult::BufferUnderflow | BufferResult::BufferOverflow => break,
     //     }
     // }
-    stream.write(data)?;
+    stream.try_write(data)?;
     Ok(())
 }
 
@@ -79,37 +84,14 @@ fn write_encrypted(data: &[u8], stream: &mut TcpStream) -> Result<(), &'static s
     Ok(())
 }
 
-pub fn forward(connection: &mut Connection, stream: &mut TcpStream) -> Result<(), &'static str> {
-    let mut read_buff = [0u8; 1024 * 100];
-    let mut write_buff = [0u8; 1024 * 100];
-    let mut len = 0usize;
-    let mut read_buffer = BufReader::new(&mut *stream);
-    match read_buffer.read(&mut read_buff) {
-        Ok(0) => {}
-        Ok(n) => {
-            println!("DEBUG: Read {} bytes.", n);
-            match write(&read_buff[0..n], &mut connection.stream) {
-                Ok(_) => {
-                    println!("DEBUG: Sent {} bytes.", n);
-                }
-                Err(_) => {}
-            };
-        }
-        Err(_) => {}
-    }
-    let mut read_buffer = BufReader::new(&mut connection.stream);
-    match read_buffer.read(&mut write_buff) {
-        Ok(0) => {}
-        Ok(n) => {
-            println!("DEBUG: Read {} bytes.", n);
-            match stream.write(&write_buff[0..n]) {
-                Ok(_) => {
-                    println!("DEBUG: Sent {} bytes.", n);
-                }
-                Err(_) => {}
-            };
-        }
-        Err(_) => {}
+pub async fn forward(connection: Connection, stream: TcpStream) -> Result<(), &'static str> {
+    let (mut readstream, mut writestream) = split(stream);
+    let (mut serverreadstream, mut serverwritestream) = split(connection.stream);
+    let read_to_server = copy(&mut readstream, &mut serverwritestream);
+    let write_to_client = copy(&mut serverreadstream, &mut writestream);
+    select! {
+        r1 = read_to_server => {},
+        r2 = write_to_client => {},
     }
     Ok(())
 }

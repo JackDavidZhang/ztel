@@ -1,11 +1,12 @@
-use crate::client_server::{forward, Connection};
-use crate::config::ClientConfig;
-use crate::{client_server, config};
-use std::io::{Read, Write};
-use std::net::Shutdown::Both;
-use std::net::{SocketAddr, TcpStream};
+use crate::client_server;
+use crate::client_server::forward;
+use crate::config::{ClientConfig, Node};
+use std::net::SocketAddr;
+use tokio::io::AsyncReadExt;
+use tokio::net::TcpStream;
 
-pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig) {
+pub async fn connect(mut stream: TcpStream, node: Node, config: ClientConfig) {
+    println!("DEBUG: Connecting...");
     let source_addr = match stream.peer_addr() {
         Ok(addr) => addr,
         Err(_) => return,
@@ -14,20 +15,21 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
     let mut read_buffer = [0u8; 4096];
     let mut write_buffer: [u8; 2] = [0; 2];
     write_buffer[0] = 5;
-    match stream.write(&write_buffer) {
+    stream.writable().await.unwrap();
+    match stream.try_write(&write_buffer) {
         Ok(_) => {}
         Err(_) => {
-            close_stream(stream, &source_addr);
             return;
         }
     }
-    let len = match stream.read(&mut read_buffer) {
+    stream.readable().await.unwrap();
+    let len = match stream.read(&mut read_buffer).await {
         Ok(n) => n,
-        Err(_) => {
-            close_stream(stream, &source_addr);
+        Err(e) => {
             return;
         }
     };
+    println!("DEBUG: Connecting to node server...");
     if !((len > 6)
         && (read_buffer[0] == 5)
         && (read_buffer[1] == 1)
@@ -38,17 +40,15 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
             "WARNING: Connect with {} failed: wrong {} bytes request.",
             source_addr, len
         );
-        close_stream(stream, &source_addr);
         return;
     }
-    let mut connect_result = match client_server::connect(&node, &read_buffer[0..len], len) {
+    let mut connect_result = match client_server::connect(&node, &read_buffer[0..len], len).await {
         Ok(n) => n,
         Err(msg) => {
             eprintln!(
                 "WARNING: Connect from {} to {} failed: {}",
                 source_addr, node_addr, msg
             );
-            close_stream(stream, &source_addr);
             return;
         }
     };
@@ -57,12 +57,10 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
         //&& (connect_result.reply[1] == 0)
         && (connect_result.reply[2] == 0)
     {
-        match stream.write(&connect_result.reply[0..connect_result.len]) {
+        match stream.try_write(&connect_result.reply[0..connect_result.len]) {
             Ok(_) => {}
             Err(_) => {
                 eprintln!("WARNING: Connect with {} aborted.", source_addr);
-                close_stream(stream, &source_addr);
-                close_connection(connect_result, &source_addr, &node_addr);
                 return;
             }
         };
@@ -104,7 +102,7 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
             );
         };
         println!(")");
-        match forward(&mut connect_result, &mut stream) {
+        match forward(connect_result, stream).await {
             Ok(_) => {}
             Err(msg) => {
                 eprintln!(
@@ -113,35 +111,11 @@ pub fn connect(mut stream: TcpStream, node: &config::Node, config: &ClientConfig
                 );
             }
         };
-        close_stream(stream, &source_addr);
-        close_connection(connect_result, &source_addr, &node_addr);
     } else {
-        close_stream(stream, &source_addr);
         let len = connect_result.len;
-        close_connection(connect_result, &source_addr, &node_addr);
         eprintln!(
             "WARNING: Connect with {} failed: wrong {} bytes reply from node server.",
             source_addr, len
         );
     }
-}
-
-fn close_stream(stream: TcpStream, source_addr: &SocketAddr) {
-    match stream.shutdown(Both) {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!("WARNING: Failed to shutdown TCP stream to {}.", source_addr);
-        }
-    };
-}
-fn close_connection(connection: Connection, source_addr: &SocketAddr, node_addr: &SocketAddr) {
-    match connection.stream.shutdown(Both) {
-        Ok(_) => {}
-        Err(_) => {
-            eprintln!(
-                "WARNING: Failed to shutdown TCP stream to {} (from {}).",
-                node_addr, source_addr
-            );
-        }
-    };
 }
