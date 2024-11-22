@@ -11,3 +11,5 @@ serde_derive = "1.0.215"
 rust-crypto = "0.2.36"
 tokio = { version = "1.41.1", features = ["full"] }
 log = "0.4.22"
+env_logger = "0.11.5"
+lazy_static = "1.5.0"

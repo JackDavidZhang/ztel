@@ -17,15 +17,14 @@ pub struct Listener {
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Node {
-    pub(crate) address: String,
-    pub(crate) port: u16,
+    pub address: String,
+    pub port: u16,
 }
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ServerConfig {
     pub listener: Listener,
 }
-
 pub fn load_client_config() -> Result<ClientConfig, &'static str> {
     let config_file = File::open("config_client.toml");
     let config_result = match config_file {
