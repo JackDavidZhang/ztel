@@ -2,34 +2,35 @@ use crate::client_server;
 use crate::client_server::forward;
 use crate::config::{ClientConfig, Node};
 use std::net::SocketAddr;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 pub async fn connect(mut stream: TcpStream, node: Node, config: ClientConfig) {
-    println!("DEBUG: Connecting...");
     let source_addr = match stream.peer_addr() {
         Ok(addr) => addr,
-        Err(_) => return,
+        Err(_) => {
+            eprintln!("DEBUG: Error 0x01");
+            return;
+        }
     };
     let node_addr = SocketAddr::new(node.address.parse().unwrap(), node.port);
     let mut read_buffer = [0u8; 4096];
     let mut write_buffer: [u8; 2] = [0; 2];
     write_buffer[0] = 5;
-    stream.writable().await.unwrap();
-    match stream.try_write(&write_buffer) {
+    match stream.write(&write_buffer).await {
         Ok(_) => {}
         Err(_) => {
+            eprintln!("DEBUG: Error 0x02");
             return;
         }
     }
-    stream.readable().await.unwrap();
     let len = match stream.read(&mut read_buffer).await {
         Ok(n) => n,
         Err(e) => {
+            eprintln!("DEBUG: Error 0x03");
             return;
         }
     };
-    println!("DEBUG: Connecting to node server...");
     if !((len > 6)
         && (read_buffer[0] == 5)
         && (read_buffer[1] == 1)
@@ -42,7 +43,7 @@ pub async fn connect(mut stream: TcpStream, node: Node, config: ClientConfig) {
         );
         return;
     }
-    let mut connect_result = match client_server::connect(&node, &read_buffer[0..len], len).await {
+    let connect_result = match client_server::connect(&node, &read_buffer[0..len], len).await {
         Ok(n) => n,
         Err(msg) => {
             eprintln!(
@@ -52,12 +53,12 @@ pub async fn connect(mut stream: TcpStream, node: Node, config: ClientConfig) {
             return;
         }
     };
-    if (connect_result.len >= 3)
-        && (connect_result.reply[0] == 5)
-        //&& (connect_result.reply[1] == 0)
-        && (connect_result.reply[2] == 0)
+    if (connect_result.len >= 3) && (connect_result.reply[0] == 5) && (connect_result.reply[2] == 0)
     {
-        match stream.try_write(&connect_result.reply[0..connect_result.len]) {
+        match stream
+            .write(&connect_result.reply[0..connect_result.len])
+            .await
+        {
             Ok(_) => {}
             Err(_) => {
                 eprintln!("WARNING: Connect with {} aborted.", source_addr);

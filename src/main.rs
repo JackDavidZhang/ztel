@@ -1,5 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use tokio::io::{copy, split};
+use tokio::io::{copy, split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
 use tokio::spawn;
@@ -18,7 +18,6 @@ async fn main() {
     };
     println!("Listening on {}", full_address);
     loop {
-        println!("Waiting for connections...");
         let (stream, listen_socket) = match listener.accept().await {
             Ok(a) => a,
             Err(_) => {
@@ -94,14 +93,39 @@ async fn main() {
 
                 let (mut readstream, mut writestream) = split(stream);
                 let (mut serverreadstream, mut serverwritestream) = split(diststream);
-                let read_to_server = copy(&mut readstream, &mut serverwritestream);
-                let write_to_client = copy(&mut serverreadstream, &mut writestream);
+                let read_to_server = read_to_write(&mut readstream, &mut serverwritestream);
+                let write_to_client = read_to_write(&mut serverreadstream, &mut writestream);
                 select! {
                     r1 = read_to_server => {},
                     r2 = write_to_client => {},
                 }
-                println!("Server disconnected.");
+                writestream.flush().await.unwrap();
+                writestream.shutdown().await.unwrap();
+                serverwritestream.flush().await.unwrap();
+                serverwritestream.shutdown().await.unwrap();
             }
         });
     }
+}
+async fn read_to_write(
+    readstream: &mut ReadHalf<TcpStream>,
+    writestream: &mut WriteHalf<TcpStream>,
+) -> Result<(), &'static str> {
+    let mut buf = [0u8; 128];
+    println!("Begin forwarding");
+    loop {
+        let len = match readstream.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        match writestream.write(&buf[..len]).await {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    writestream.flush().await.unwrap();
+    writestream.shutdown().await.unwrap();
+    Ok(())
 }
