@@ -1,10 +1,19 @@
-use log::warn;
+use log::{debug, warn};
 use std::io::Error;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
+use aes_gcm::{AeadCore, Aes128Gcm, AesGcm, KeyInit};
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::aead::{Aead, Nonce, OsRng};
+use aes_gcm::aead::consts::U12;
+use aes_gcm::aes::Aes128;
+use lazy_static::lazy_static;
 use tokio::io::{split, AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::net::TcpStream;
 use tokio::select;
+
+static KEY:[u8;16] = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+static NONCE:[u8;12] = [16,17,18,19,20,21,22,23,24,25,26,27];
 
 pub struct Connection {
     pub(crate) stream: TcpStream,
@@ -46,46 +55,25 @@ pub async fn client_connect(address: &SocketAddr, request: &[u8]) -> Option<Conn
 }
 
 pub(crate) async fn write(buf: &[u8], stream: &mut TcpStream) -> Result<usize, Error> {
-    stream.write(buf).await
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&KEY));
+    let nonce = GenericArray::from_slice(&NONCE);
+    let ciphertext = cipher.encrypt(&nonce,buf).unwrap();
+    stream.write(ciphertext.as_slice()).await
 }
 
 pub async fn read(buf: &mut [u8], stream: &mut TcpStream) -> Result<usize, Error> {
-    stream.read(buf).await
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&KEY));
+    let nonce= GenericArray::from_slice(&NONCE);
+    let mut read_buf = vec![0u8; 128];
+    let len = match stream.read(&mut read_buf).await{
+        Ok(0)=>{return Ok(0)},
+        Ok(len) => len,
+        Err(e) => return Err(e),
+    };
+    let plaintext = cipher.decrypt(&nonce,&read_buf[..len]).unwrap();
+    buf[..plaintext.len()].copy_from_slice(&plaintext);
+    Ok(plaintext.len())
 }
-
-// fn write_encrypted(data: &[u8], stream: &mut TcpStream) -> Result<(), &'static str> {
-// let mut encryptor =
-//     //     aes::cbc_encryptor(KeySize::KeySize128, &[73u8; 16], &[48u8; 16], PkcsPadding);
-//     // let stream_len;
-//     // let mut final_result = [0u8; 4096];
-//     // let mut stream = [0u8; 4096];
-//     // {
-//     //     let mut read_buff = RefReadBuffer::new(data);
-//     //     let mut write_buff = RefWriteBuffer::new(&mut stream);
-//     //     loop {
-//     //         match encryptor
-//     //             .encrypt(&mut read_buff, &mut write_buff, true)
-//     //             .unwrap()
-//     //         {
-//     //             BufferResult::BufferUnderflow => break,
-//     //             _ => continue,
-//     //         }
-//     //     }
-//     //     stream_len = write_buff.position() as usize;
-//     // }
-//     // let mut decryptor_read_buff = RefReadBuffer::new(stream[0..stream_len].as_ref());
-//     // let mut decryptor_write_buff = RefWriteBuffer::new(&mut final_result);
-//     // let mut decryptor = aes::cbc_decryptor(KeySize128, &[73u8; 16], &[48u8; 16], PkcsPadding);
-//     // loop {
-//     //     match decryptor
-//     //         .decrypt(&mut decryptor_read_buff, &mut decryptor_write_buff, true)
-//     //         .unwrap()
-//     //     {
-//     //         BufferResult::BufferUnderflow | BufferResult::BufferOverflow => break,
-//     //     }
-//     // }
-//     Ok(())
-// }
 
 pub async fn client_forward(connection: Connection, stream: TcpStream) {
     let (mut readstream, mut writestream) = split(stream);
@@ -96,10 +84,10 @@ pub async fn client_forward(connection: Connection, stream: TcpStream) {
         _r1  =read_to_server => {},
         _r2= write_to_client => {},
     }
-    writestream.flush().await.unwrap();
-    writestream.shutdown().await.unwrap();
-    serverwritestream.flush().await.unwrap();
-    serverwritestream.shutdown().await.unwrap();
+    writestream.flush().await.unwrap_or(());
+    writestream.shutdown().await.unwrap_or(());
+    serverwritestream.flush().await.unwrap_or(());
+    serverwritestream.shutdown().await.unwrap_or(());
 }
 
 async fn read_to_write(
@@ -117,8 +105,8 @@ async fn read_to_write(
             Ok(_) => {}
         }
     }
-    writestream.flush().await.unwrap();
-    writestream.shutdown().await.unwrap();
+    writestream.flush().await.unwrap_or(());
+    writestream.shutdown().await.unwrap_or(());
     Ok(())
 }
 
@@ -131,8 +119,8 @@ pub async fn server_forward(stream: TcpStream, diststream: TcpStream) {
         _r1 = read_to_server => {},
         _r2 = write_to_client => {},
     }
-    writestream.flush().await.unwrap();
-    writestream.shutdown().await.unwrap();
-    serverwritestream.flush().await.unwrap();
-    serverwritestream.shutdown().await.unwrap();
+    writestream.flush().await.unwrap_or(());
+    writestream.shutdown().await.unwrap_or(());
+    serverwritestream.flush().await.unwrap_or(());
+    serverwritestream.shutdown().await.unwrap_or(());
 }

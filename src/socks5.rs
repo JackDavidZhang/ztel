@@ -103,7 +103,7 @@ pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usi
         Err(_) => {
             warn!("Cannot connect to {}.", dist_addr);
             write_buf[1] = 1;
-            match stream.write(&write_buf).await {
+            match poxy::write(&write_buf,&mut stream).await {
                 Ok(_) => {}
                 Err(_) => {
                     debug!("Stop 0x0204");

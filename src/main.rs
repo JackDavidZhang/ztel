@@ -1,6 +1,5 @@
 use log::{debug, error, info, warn};
 use std::net::SocketAddr;
-use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::spawn;
 use ztel::{config, poxy, socks5};
@@ -43,11 +42,11 @@ async fn main() {
         };
         let mut buf: [u8; 4096] = [0; 4096];
         let len = match poxy::read(&mut buf, &mut stream).await {
-            Ok(n) => n,
-            Err(_) => {
+            Err(_)|Ok(0) => {
                 debug!("Stop 0x0001");
                 continue;
             }
+            Ok(n) => n
         };
         if (len >= 3) && (buf[0] == 5) && (buf[1] == 1) {
             spawn(socks5::server_connect(stream, buf, len));
