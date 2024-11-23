@@ -1,11 +1,11 @@
 use crate::poxy;
-use crate::poxy::client_forward;
+use crate::poxy::{client_forward, server_forward};
 use log::{debug, info, warn};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub async fn connect(mut stream: TcpStream, node_addr: SocketAddr) {
+pub async fn client_connect(mut stream: TcpStream, node_addr: SocketAddr) {
     let source_addr = match stream.peer_addr() {
         Ok(addr) => addr,
         Err(_) => {
@@ -30,46 +30,16 @@ pub async fn connect(mut stream: TcpStream, node_addr: SocketAddr) {
             return;
         }
     };
-    let remote_addr: SocketAddr;
-    if (len > 6) && (read_buffer[0] == 5) && (read_buffer[1] == 1) && (read_buffer[2] == 0) {
-        if (read_buffer[3] == 1) && (len == 10) {
-            remote_addr = SocketAddr::new(
-                IpAddr::V4(Ipv4Addr::new(
-                    read_buffer[4],
-                    read_buffer[5],
-                    read_buffer[6],
-                    read_buffer[7],
-                )),
-                read_buffer[8] as u16 * 256 + read_buffer[9] as u16,
-            );
-        } else if (read_buffer[3] == 4) && (len == 22) {
-            remote_addr = SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::new(
-                    read_buffer[4] as u16 * 256 + read_buffer[5] as u16,
-                    read_buffer[6] as u16 * 256 + read_buffer[7] as u16,
-                    read_buffer[8] as u16 * 256 + read_buffer[9] as u16,
-                    read_buffer[10] as u16 * 256 + read_buffer[11] as u16,
-                    read_buffer[12] as u16 * 256 + read_buffer[13] as u16,
-                    read_buffer[14] as u16 * 256 + read_buffer[15] as u16,
-                    read_buffer[16] as u16 * 256 + read_buffer[17] as u16,
-                    read_buffer[18] as u16 * 256 + read_buffer[19] as u16,
-                )),
-                read_buffer[20] as u16 * 256 + read_buffer[21] as u16,
-            );
-        } else {
+    let remote_addr: SocketAddr = match get_addr(&read_buffer[0..len]) {
+        Ok(addr) => addr,
+        Err(_) => {
             warn!(
-                "Connect with {} failed: wrong request address.",
-                source_addr
+                "Connect with {} failed: wrong {} bytes request.",
+                source_addr, len
             );
             return;
         }
-    } else {
-        warn!(
-            "Connect with {} failed: wrong {} bytes request.",
-            source_addr, len
-        );
-        return;
-    }
+    };
     let connect_result = match poxy::client_connect(&node_addr, &read_buffer[0..len]).await {
         Some(n) => n,
         None => {
@@ -95,20 +65,89 @@ pub async fn connect(mut stream: TcpStream, node_addr: SocketAddr) {
             connect_result.delay.as_millis(),
             remote_addr
         );
-        match client_forward(connect_result, stream).await {
-            Ok(_) => {}
-            Err(msg) => {
-                warn!(
-                    "Forwarding {} to {} failed: {}",
-                    source_addr, node_addr, msg
-                );
-            }
-        };
+        client_forward(connect_result, stream).await;
     } else {
         let len = connect_result.len;
         warn!(
             "Connect with {} failed: wrong {} bytes reply from node server.",
             source_addr, len
         );
+    }
+}
+
+pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usize) {
+    let client_addr = match stream.peer_addr() {
+        Ok(addr) => addr,
+        Err(_) => {
+            debug!("Stop 0x0201");
+            return;
+        }
+    };
+    let mut write_buf: [u8; 10] = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+    let dist_addr: SocketAddr = match get_addr(&request[0..len]) {
+        Ok(addr) => addr,
+        Err(_) => {
+            warn!("Connect with {} failed: wrong request.", client_addr);
+            write_buf[1] = 8;
+            match poxy::write(&mut write_buf, &mut stream).await {
+                Ok(_) => {}
+                Err(_) => {
+                    debug!("Stop 0x0202");
+                }
+            };
+            return;
+        }
+    };
+    let diststream = match TcpStream::connect(dist_addr).await {
+        Ok(stream) => stream,
+        Err(_) => {
+            warn!("Cannot connect to {}.", dist_addr);
+            write_buf[1] = 1;
+            match stream.write(&write_buf).await {
+                Ok(_) => {}
+                Err(_) => {
+                    debug!("Stop 0x0204");
+                }
+            };
+            return;
+        }
+    };
+    match poxy::write(&mut write_buf, &mut stream).await {
+        Ok(_) => {}
+        Err(_) => {
+            warn!("Connect with {} aborted.", client_addr);
+            return;
+        }
+    };
+    info!("Connect from {} to {} established", client_addr, dist_addr);
+    server_forward(stream, diststream).await;
+}
+
+fn get_addr(src: &[u8]) -> Result<SocketAddr, ()> {
+    if (src.len() > 6) && (src[0] == 5) && (src[1] == 1) && (src[2] == 0) {
+        if (src[3] == 1) && (src.len() == 10) {
+            Ok(SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::new(src[4], src[5], src[6], src[7])),
+                src[8] as u16 * 256 + src[9] as u16,
+            ))
+        } else if (src[3] == 4) && (src.len() == 22) {
+            Ok(SocketAddr::new(
+                IpAddr::V6(Ipv6Addr::new(
+                    src[4] as u16 * 256 + src[5] as u16,
+                    src[6] as u16 * 256 + src[7] as u16,
+                    src[8] as u16 * 256 + src[9] as u16,
+                    src[10] as u16 * 256 + src[11] as u16,
+                    src[12] as u16 * 256 + src[13] as u16,
+                    src[14] as u16 * 256 + src[15] as u16,
+                    src[16] as u16 * 256 + src[17] as u16,
+                    src[18] as u16 * 256 + src[19] as u16,
+                )),
+                src[20] as u16 * 256 + src[21] as u16,
+            ))
+        } else {
+            Err(())
+        }
+    } else {
+        Err(())
     }
 }

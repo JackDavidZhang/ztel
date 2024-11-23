@@ -1,9 +1,9 @@
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::net::SocketAddr;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::spawn;
-use ztel::config;
-use ztel::poxy::server_connection;
+use ztel::{config, poxy, socks5};
 
 #[tokio::main]
 async fn main() {
@@ -34,13 +34,25 @@ async fn main() {
     };
     info!("Listening on {}", full_address);
     loop {
-        let (stream, _listen_socket) = match listener.accept().await {
+        let (mut stream, _listen_socket) = match listener.accept().await {
             Ok(a) => a,
             Err(_) => {
                 warn!("Failed to accept connection.");
                 continue;
             }
         };
-        spawn(server_connection(stream));
+        let mut buf: [u8; 4096] = [0; 4096];
+        let len = match poxy::read(&mut buf, &mut stream).await {
+            Ok(n) => n,
+            Err(_) => {
+                debug!("Stop 0x0001");
+                continue;
+            }
+        };
+        if (len >= 3) && (buf[0] == 5) && (buf[1] == 1) {
+            spawn(socks5::server_connect(stream, buf, len));
+        } else {
+            debug!("Stop 0x0002");
+        }
     }
 }

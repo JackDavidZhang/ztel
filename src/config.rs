@@ -1,3 +1,4 @@
+use log::{error, warn};
 use serde_derive::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{ErrorKind, Read, Write};
@@ -37,7 +38,7 @@ pub fn load_client_config() -> Result<ClientConfig, &'static str> {
             let config: ClientConfig = match toml::from_str(&contents) {
                 Ok(config) => config,
                 Err(e) => {
-                    eprintln!("ERROR: Cannot resolve config_client.toml: {}", e.message());
+                    error!("Cannot resolve config_client.toml: {}", e.message());
                     return Err("Cannot read config_client.toml.");
                 }
             };
@@ -45,7 +46,7 @@ pub fn load_client_config() -> Result<ClientConfig, &'static str> {
         }
         Err(error) => match error.kind() {
             ErrorKind::NotFound => {
-                println!("WARNING: Config file not found, creating default config.");
+                warn!("Config file not found, creating default config.");
                 let mut config_file = match File::create("config_client.toml") {
                     Ok(file) => file,
                     Err(_) => return Err("Cannot create config_client.toml."),
@@ -96,7 +97,7 @@ pub fn load_server_config() -> Result<ServerConfig, &'static str> {
             let config: ServerConfig = match toml::from_str(&contents) {
                 Ok(config) => config,
                 Err(e) => {
-                    eprintln!("ERROR: Cannot resolve config_server.toml: {}", e.message());
+                    error!("Cannot resolve config_server.toml: {}", e.message());
                     return Err("Cannot read config_server.toml.");
                 }
             };
@@ -104,7 +105,7 @@ pub fn load_server_config() -> Result<ServerConfig, &'static str> {
         }
         Err(error) => match error.kind() {
             ErrorKind::NotFound => {
-                println!("WARNING: Config file not found, creating default config.");
+                warn!("WARNING: Config file not found, creating default config.");
                 let mut config_file = match File::create("config_server.toml") {
                     Ok(file) => file,
                     Err(_) => return Err("Cannot create config_server.toml."),

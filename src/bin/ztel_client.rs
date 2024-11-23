@@ -4,7 +4,7 @@ use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::spawn;
 use ztel::config::load_client_config;
-use ztel::socks5::connect;
+use ztel::socks5::client_connect;
 
 #[tokio::main]
 async fn main() {
@@ -52,17 +52,19 @@ async fn main() {
                 continue;
             }
         };
-        let mut read_buff: [u8; 4096] = [0; 4096];
-        let len = match stream.read(&mut read_buff).await {
+        let mut buf: [u8; 4096] = [0; 4096];
+        let len = match stream.read(&mut buf).await {
             Ok(n) => n,
             Err(_) => {
                 debug!("Stop 0x0001");
                 continue;
             }
         };
-        if (len >= 3) && (read_buff[0] == 5) && (read_buff[1] == 1) {
+        if (len >= 3) && (buf[0] == 5) && (buf[1] == 1) {
             let node_copy = node_addres.clone();
-            spawn(connect(stream, node_copy));
+            spawn(client_connect(stream, node_copy));
+        } else {
+            debug!("Stop 0x0002");
         }
     }
 }
