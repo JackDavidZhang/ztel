@@ -88,18 +88,30 @@ pub async fn read_decrypt<T: AsyncRead + Unpin>(
     cipher: &AesGcm<Aes256, U12>,
 ) -> Result<usize, Error> {
     let mut nonce_buf = [0u8; 12];
-    match stream.read(&mut nonce_buf).await {
-        Ok(12) => 12,
-        Ok(_) => return Ok(0),
-        Err(e) => return Err(e),
-    };
+    let mut len = 0usize;
+    loop {
+        match stream.read(&mut nonce_buf[len..]).await {
+            Ok(0) => return Ok(0),
+            Ok(l) => len += l,
+            Err(e) => return Err(e),
+        };
+        if len == 12 {
+            break;
+        }
+    }
     let nonce = GenericArray::from_slice(&nonce_buf);
     let mut length_buf = [0u8; 17];
-    match stream.read(&mut length_buf).await {
-        Ok(17) => 17,
-        Ok(_) => return Ok(0),
-        Err(e) => return Err(e),
-    };
+    let mut len = 0usize;
+    loop {
+        match stream.read(&mut length_buf[len..]).await {
+            Ok(0) => return Ok(0),
+            Ok(l) => len += l,
+            Err(e) => return Err(e),
+        };
+        if len == 17 {
+            break;
+        }
+    }
     let length = match cipher.decrypt(&nonce, length_buf.as_slice()) {
         Ok(a) => a[0],
         Err(e) => {
@@ -109,11 +121,17 @@ pub async fn read_decrypt<T: AsyncRead + Unpin>(
     };
     let mut read_buf = Vec::new();
     read_buf.resize(length as usize, 0);
-    match stream.read(&mut read_buf).await {
-        Ok(0) => return Ok(0),
-        Ok(len) => len,
-        Err(e) => return Err(e),
-    };
+    let mut len = 0usize;
+    loop {
+        match stream.read(&mut read_buf[len..]).await {
+            Ok(0) => return Ok(0),
+            Ok(l) => len += l,
+            Err(e) => return Err(e),
+        };
+        if len == length as usize {
+            break;
+        }
+    }
     let plaintext = match cipher.decrypt(&nonce, read_buf.as_slice()) {
         Ok(a) => a,
         Err(e) => {
