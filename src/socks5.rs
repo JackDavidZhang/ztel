@@ -1,11 +1,18 @@
 use crate::poxy;
 use crate::poxy::{client_forward, server_forward};
+use aes_gcm::aead::consts::U12;
+use aes_gcm::aes::Aes256;
+use aes_gcm::AesGcm;
 use log::{debug, info, warn};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-pub async fn client_connect(mut stream: TcpStream, node_addr: SocketAddr) {
+pub async fn client_connect(
+    mut stream: TcpStream,
+    node_addr: SocketAddr,
+    cipher: AesGcm<Aes256, U12>,
+) {
     let source_addr = match stream.peer_addr() {
         Ok(addr) => addr,
         Err(_) => {
@@ -40,7 +47,8 @@ pub async fn client_connect(mut stream: TcpStream, node_addr: SocketAddr) {
             return;
         }
     };
-    let connect_result = match poxy::client_connect(&node_addr, &read_buffer[0..len]).await {
+    let connect_result = match poxy::client_connect(&node_addr, &read_buffer[0..len], &cipher).await
+    {
         Some(n) => n,
         None => {
             return;
@@ -65,7 +73,7 @@ pub async fn client_connect(mut stream: TcpStream, node_addr: SocketAddr) {
             connect_result.delay.as_millis(),
             remote_addr
         );
-        client_forward(connect_result, stream).await;
+        client_forward(connect_result, stream, &cipher).await;
     } else {
         let len = connect_result.len;
         warn!(
@@ -75,7 +83,12 @@ pub async fn client_connect(mut stream: TcpStream, node_addr: SocketAddr) {
     }
 }
 
-pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usize) {
+pub async fn server_connect(
+    mut stream: TcpStream,
+    request: [u8; 4096],
+    len: usize,
+    cipher: AesGcm<Aes256, U12>,
+) {
     let client_addr = match stream.peer_addr() {
         Ok(addr) => addr,
         Err(_) => {
@@ -89,7 +102,7 @@ pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usi
         Err(_) => {
             warn!("Connect with {} failed: wrong request.", client_addr);
             write_buf[1] = 8;
-            match poxy::write(&mut write_buf, &mut stream).await {
+            match poxy::write_encrypt(&mut write_buf, &mut stream, &cipher).await {
                 Ok(_) => {}
                 Err(_) => {
                     debug!("Stop 0x0202");
@@ -103,7 +116,7 @@ pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usi
         Err(_) => {
             warn!("Cannot connect to {}.", dist_addr);
             write_buf[1] = 1;
-            match poxy::write(&write_buf,&mut stream).await {
+            match poxy::write_encrypt(&write_buf, &mut stream, &cipher).await {
                 Ok(_) => {}
                 Err(_) => {
                     debug!("Stop 0x0204");
@@ -112,7 +125,7 @@ pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usi
             return;
         }
     };
-    match poxy::write(&mut write_buf, &mut stream).await {
+    match poxy::write_encrypt(&mut write_buf, &mut stream, &cipher).await {
         Ok(_) => {}
         Err(_) => {
             warn!("Connect with {} aborted.", client_addr);
@@ -120,7 +133,7 @@ pub async fn server_connect(mut stream: TcpStream, request: [u8; 4096], len: usi
         }
     };
     info!("Connect from {} to {} established", client_addr, dist_addr);
-    server_forward(stream, diststream).await;
+    server_forward(stream, diststream, &cipher).await;
 }
 
 fn get_addr(src: &[u8]) -> Result<SocketAddr, ()> {

@@ -1,4 +1,8 @@
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::{Aes256Gcm, KeyInit};
 use log::{debug, error, info, warn};
+use sha2::Digest;
+use sha2::Sha256;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 use tokio::spawn;
@@ -14,6 +18,10 @@ async fn main() {
             return;
         }
     };
+    let mut hasher = Sha256::new();
+    hasher.update(config.passwd.as_bytes());
+    let result = hasher.finalize().to_vec();
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(result.as_slice()));
     let full_address = SocketAddr::new(
         match config.listener.address.parse() {
             Ok(a) => a,
@@ -41,15 +49,15 @@ async fn main() {
             }
         };
         let mut buf: [u8; 4096] = [0; 4096];
-        let len = match poxy::read(&mut buf, &mut stream).await {
-            Err(_)|Ok(0) => {
+        let len = match poxy::read_decrypt(&mut buf, &mut stream, &cipher).await {
+            Err(_) | Ok(0) => {
                 debug!("Stop 0x0001");
                 continue;
             }
-            Ok(n) => n
+            Ok(n) => n,
         };
         if (len >= 3) && (buf[0] == 5) && (buf[1] == 1) {
-            spawn(socks5::server_connect(stream, buf, len));
+            spawn(socks5::server_connect(stream, buf, len, cipher.clone()));
         } else {
             debug!("Stop 0x0002");
         }

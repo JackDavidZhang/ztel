@@ -20,11 +20,13 @@ pub struct Listener {
 pub struct Node {
     pub address: String,
     pub port: u16,
+    pub passwd: String,
 }
 
 #[derive(Deserialize, Clone, Serialize)]
 pub struct ServerConfig {
     pub listener: Listener,
+    pub passwd: String,
 }
 pub fn load_client_config() -> Result<ClientConfig, &'static str> {
     let config_file = File::open("config_client.toml");
@@ -59,6 +61,7 @@ pub fn load_client_config() -> Result<ClientConfig, &'static str> {
                     node: Node {
                         address: "127.0.0.1".to_string(),
                         port: 10086,
+                        passwd: "password".to_string(),
                     },
                 };
                 let default_config_str = toml::to_string(&default_config).unwrap();
@@ -115,6 +118,7 @@ pub fn load_server_config() -> Result<ServerConfig, &'static str> {
                         address: "127.0.0.1".to_string(),
                         port: 10086,
                     },
+                    passwd: "password".to_string(),
                 };
                 let default_config_str = toml::to_string(&default_config).unwrap();
                 match config_file.write(default_config_str.as_bytes()) {

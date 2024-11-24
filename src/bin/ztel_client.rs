@@ -1,4 +1,8 @@
+use aes_gcm::aead::generic_array::GenericArray;
+use aes_gcm::Aes256Gcm;
+use aes_gcm::KeyInit;
 use log::{debug, error, info, warn};
+use sha2::{Digest, Sha256};
 use std::net::SocketAddr;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
@@ -16,6 +20,10 @@ async fn main() {
             return;
         }
     };
+    let mut hasher = Sha256::new();
+    hasher.update(config.node.passwd.as_bytes());
+    let result = hasher.finalize().to_vec();
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(result.as_slice()));
     let full_address = SocketAddr::new(
         match config.listener.address.parse() {
             Ok(a) => a,
@@ -26,7 +34,7 @@ async fn main() {
         },
         config.listener.port,
     );
-    let node_addres = SocketAddr::new(
+    let node_address = SocketAddr::new(
         match config.node.address.parse() {
             Ok(a) => a,
             Err(_) => {
@@ -61,8 +69,7 @@ async fn main() {
             }
         };
         if (len >= 3) && (buf[0] == 5) && (buf[1] == 1) {
-            let node_copy = node_addres.clone();
-            spawn(client_connect(stream, node_copy));
+            spawn(client_connect(stream, node_address.clone(), cipher.clone()));
         } else {
             debug!("Stop 0x0002");
         }
